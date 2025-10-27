@@ -1,0 +1,23 @@
+{
+  "Qwen 32B - 100 graphs (typical)": {
+    "baseline_ms": 1034.7645282745361,
+    "optimized_ms": 217.50879287719727,
+    "speedup": 4.75734573571355,
+    "baseline_nodes": 294400,
+    "optimized_nodes": 294400
+  },
+  "Qwen 32B - long sequences": {
+    "baseline_ms": 2104.422092437744,
+    "optimized_ms": 435.55450439453125,
+    "speedup": 4.831592995147927,
+    "baseline_nodes": 588800,
+    "optimized_nodes": 588800
+  },
+  "Qwen 7B - all layers": {
+    "baseline_ms": 1074.0389823913574,
+    "optimized_ms": 252.62880325317383,
+    "speedup": 4.251451016513748,
+    "baseline_nodes": 345600,
+    "optimized_nodes": 345600
+  }
+}
