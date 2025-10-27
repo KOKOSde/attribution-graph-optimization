@@ -1,5 +1,7 @@
 # Attribution Graph Optimization for Large Language Models
 
+![Speedup Badge](speedup_badge.png)
+
 **4.76× faster feature extraction** for mechanistic interpretability research on 32B+ parameter models.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -130,6 +132,8 @@ Used to generate 200 attribution graphs for trap-detection study on Qwen2.5-VL-3
 - Published feature steering methodology
 
 ## Performance Analysis
+
+![Performance Charts](performance_analysis.png)
 
 ### Profiling Results
 ```
