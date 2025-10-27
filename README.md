@@ -272,13 +272,6 @@ Found a way to make it even faster? Contributions welcome!
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
----
-
-## 📧 Contact
-
-**Fahad Alghanim**  
-Email: fkalghan@email.sc.edu  
-GitHub: [@YourGitHubUsername]
 
 ---
 
