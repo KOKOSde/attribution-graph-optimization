@@ -67,10 +67,10 @@ for val, feat, pos in zip(vals_list, feats_list, pos_list):
 ## 📊 Performance Results
 
 ### Configuration
-- **Model:** Qwen 32B Vision-Language Model
-- **Layers:** 23 transformer layers (L40-62)
-- **Features:** 12,288 dimensions
-- **Sequence:** 256 tokens
+- **Models Tested:** Qwen 32B, Qwen 7B, LLaVA 1.5 7B
+- **Layers:** 23-32 transformer layers
+- **Features:** 8,192-12,288 dimensions
+- **Sequence:** 256-512 tokens
 - **Hardware:** NVIDIA A100 GPU
 
 ### Benchmark Results
@@ -215,12 +215,13 @@ Reality: Python loops and memory transfers were the bottleneck.
 
 ## 💡 Applications
 
-This optimization is useful for:
+This optimization works with any transformer-based model and is useful for:
 
 - **Attribution Analysis** - Understanding which features influence model outputs
 - **Model Interpretability** - Generating feature activation graphs at scale
-- **AI Safety Research** - Analyzing model behavior patterns
+- **AI Safety Research** - Analyzing model behavior patterns across LLMs and VLMs
 - **Neural Network Debugging** - Identifying problematic features quickly
+- **Works with:** GPT, LLaMA, Qwen, LLaVA, CLIP, and any transformer architecture
 
 ---
 
