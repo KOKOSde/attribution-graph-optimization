@@ -83,9 +83,9 @@ for val, feat, pos in zip(vals_list, feats_list, pos_list):
 
 ### Real-World Impact
 
-- **100 graphs:** 1.7 minutes → 0.4 minutes ⚡
-- **1000 graphs:** 17 minutes → 3.6 minutes ⚡
-- **Saves 13.4 minutes per 1000 graphs** 🎉
+- **100 graphs:** 1.7 minutes → 0.4 minutes
+- **1000 graphs:** 17 minutes → 3.6 minutes
+- **Saves 13.4 minutes per 1000 graphs**
 
 ---
 
@@ -301,9 +301,9 @@ If you use this optimization in your research, please cite:
 
 <div align="center">
 
-**⚡ 4.76x Faster | 🎯 79% Improvement | 🚀 Production-Ready**
+**4.76x Faster | 79% Improvement | Production-Ready**
 
-Made with ❤️ by Fahad Alghanim
+By Fahad Alghanim
 
 </div>
 
