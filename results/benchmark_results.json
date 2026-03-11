@@ -1,23 +1,109 @@
 {
-  "Qwen 32B - 100 graphs (typical)": {
-    "baseline_ms": 1034.7645282745361,
-    "optimized_ms": 217.50879287719727,
-    "speedup": 4.75734573571355,
-    "baseline_nodes": 294400,
-    "optimized_nodes": 294400
+  "config": {
+    "batch_size": 1,
+    "num_layers": 4,
+    "seq_len": 128,
+    "hidden_dim": 256,
+    "feature_dim": 2048,
+    "top_k": 32,
+    "threshold": 0.05,
+    "iterations": 15,
+    "warmup": 5,
+    "device": "cpu",
+    "dtype": "float32",
+    "num_threads": 1
   },
-  "Qwen 32B - long sequences": {
-    "baseline_ms": 2104.422092437744,
-    "optimized_ms": 435.55450439453125,
-    "speedup": 4.831592995147927,
-    "baseline_nodes": 588800,
-    "optimized_nodes": 588800
+  "extension_status": {
+    "loaded": true,
+    "enabled": true,
+    "disabled_by_env": false,
+    "build_variant": "cpu",
+    "has_cuda_kernels": false,
+    "load_error": null
   },
-  "Qwen 7B - all layers": {
-    "baseline_ms": 1074.0389823913574,
-    "optimized_ms": 252.62880325317383,
-    "speedup": 4.251451016513748,
-    "baseline_nodes": 345600,
-    "optimized_nodes": 345600
+  "timings": {
+    "baseline": {
+      "mean_ms": 53.74537159999212,
+      "p50_ms": 53.903207182884216,
+      "throughput_graphs_min": 1116.375200576505,
+      "latencies_ms": [
+        53.754257038235664,
+        54.59293536841869,
+        54.420316591858864,
+        54.507844150066376,
+        54.18001674115658,
+        54.259223863482475,
+        53.66377532482147,
+        54.00395393371582,
+        53.903207182884216,
+        54.044611752033234,
+        53.66440676152706,
+        53.48149314522743,
+        52.447548136115074,
+        52.595583721995354,
+        52.66140028834343
+      ]
+    },
+    "optimized": {
+      "mean_ms": 49.07370830575625,
+      "p50_ms": 48.83535020053387,
+      "throughput_graphs_min": 1222.6506223284969,
+      "latencies_ms": [
+        48.83535020053387,
+        50.94657279551029,
+        48.69215190410614,
+        50.46485550701618,
+        48.328567296266556,
+        49.72212761640549,
+        48.663949593901634,
+        50.05311407148838,
+        47.939468175172806,
+        50.60616321861744,
+        47.55558632314205,
+        50.14311894774437,
+        47.22237028181553,
+        49.38827268779278,
+        47.543955966830254
+      ]
+    },
+    "extension": {
+      "mean_ms": 48.45625385642052,
+      "p50_ms": 48.22446405887604,
+      "throughput_graphs_min": 1238.230263895027,
+      "latencies_ms": [
+        49.22579601407051,
+        52.80544236302376,
+        49.27404969930649,
+        51.940035074949265,
+        47.38473519682884,
+        49.729663878679276,
+        47.175273299217224,
+        49.1920430213213,
+        46.49585299193859,
+        48.697441816329956,
+        46.320872381329536,
+        48.13452251255512,
+        46.07946798205376,
+        48.22446405887604,
+        46.164147555828094
+      ]
+    }
+  },
+  "correctness": {
+    "optimized_vs_baseline": {
+      "matches": true,
+      "reason": "ok",
+      "num_nodes": 16384
+    },
+    "extension_vs_optimized": {
+      "matches": true,
+      "reason": "ok",
+      "num_nodes": 16384
+    },
+    "summary_match": {
+      "baseline_num_nodes": 16384,
+      "optimized_num_nodes": 16384,
+      "extension_num_nodes": 16384
+    }
   }
 }

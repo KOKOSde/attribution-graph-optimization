@@ -1,4 +1,4 @@
-from attribution_graph_optimization.graph_generation import (
+from .graph_generation import (
     extract_features,
     extract_features_baseline,
     extract_features_extension,

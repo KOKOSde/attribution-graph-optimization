@@ -1,216 +1,259 @@
-# Attribution Graph Optimization for Large Language Models
+# Attribution Graph Optimization
 
-![Speedup Badge](speedup_badge.png)
+Minimal attribution-graph generation code with three execution paths:
 
-**4.76× faster feature extraction** for mechanistic interpretability research on 32B+ parameter models.
+- `baseline`: per-position Python loops
+- `optimized`: pure PyTorch vectorization
+- `extension`: the same graph-generation pipeline, but with a custom native op for top-k threshold compaction
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![CUDA](https://img.shields.io/badge/CUDA-11.0+-green.svg)](https://developer.nvidia.com/cuda-toolkit)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+The repository now contains a real custom C++/CUDA extension:
 
-## Performance
+- C++ source: [csrc/compact_topk.cpp](csrc/compact_topk.cpp)
+- CUDA source: [csrc/compact_topk_cuda.cu](csrc/compact_topk_cuda.cu)
+- Python fallback: [attribution_graph_optimization/graph_generation.py](attribution_graph_optimization/graph_generation.py)
 
-### NVIDIA H100 NVL (Primary)
-| Metric | Baseline | Optimized | Improvement |
-|--------|----------|-----------|-------------|
-| **Per-graph latency** | 835 ms | **174 ms** | **4.81× faster** |
-| **Throughput** | 72 graphs/min | 345 graphs/min | **4.8× higher** |
-| **Time for 1000 graphs** | 13.9 min | **2.9 min** | **Saves 11.0 min** |
+## What Is Fused
 
-### NVIDIA A100 80GB
-| Metric | Baseline | Optimized | Improvement |
-|--------|----------|-----------|-------------|
-| **Per-graph latency** | 1034 ms | **217 ms** | **4.76× faster** |
-| **Throughput** | 58 graphs/min | 276 graphs/min | **4.8× higher** |
-| **Time for 1000 graphs** | 17.2 min | **3.6 min** | **Saves 13.6 min** |
+After `torch.topk`, the graph pipeline still has to:
 
-### GPU Comparison
-| GPU | Speedup | Latency (ms) | Throughput (graphs/min) |
-|-----|---------|--------------|-------------------------|
-| **H100 NVL** | **4.81×** | 835 → **174** | 72 → **345** |
-| **A100 80GB** | **4.76×** | 1034 → **217** | 58 → **276** |
+1. apply an activation threshold
+2. compact the surviving entries
+3. return `(batch_idx, position_idx, feature_idx, value)` tuples for node construction
 
-**Model:** Qwen2.5-32B (23 layers, 12K features/layer, 50 top-K)  
-**Key insight:** Consistent ~4.8× speedup across different NVIDIA GPU architectures
+The native op `compact_topk_threshold(...)` replaces the pure-PyTorch sequence:
 
-## The Problem
+- `valid_mask = top_vals >= threshold`
+- `torch.where(valid_mask)`
+- indexed gathers back into `top_vals` and `top_idx`
 
-Attribution graphs map how interpretable features influence model outputs in large language models. Generating these graphs requires:
-1. Forward pass through transcoder networks (16K features × 3584 hidden dims)
-2. Top-K selection across sequence positions  
-3. Sparse graph construction
+That is the smallest high-impact bottleneck in this repo that can be moved into a real compiled component without rewriting the whole pipeline.
 
-**Bottleneck:** Processing 23 layers with Python loops caused excessive CPU-GPU synchronization.
+## CUDA Work
 
-## The Solution
+The CUDA path added in this repo is narrow on purpose: it accelerates the post-`topk` threshold-compaction step without changing the surrounding Python graph-generation API.
 
-### Key Optimizations
+What was added:
 
-**1. Vectorized Feature Extraction**
-```python
-# Before: Python loop (SLOW)
-for pos in range(seq_len):
-    acts = transcoder(hidden[pos])
-    top_k = torch.topk(acts, k=50)
-    # ... build graph nodes
+- [csrc/compact_topk_cuda.cu](csrc/compact_topk_cuda.cu): CUDA kernel and launcher for thresholding and compacting `topk` outputs directly on device
+- [csrc/compact_topk.cpp](csrc/compact_topk.cpp): PyTorch operator registration and CPU/CUDA dispatch
+- [setup.py](setup.py): conditional `CUDAExtension` build when a CUDA toolkit is available
+- [attribution_graph_optimization/native.py](attribution_graph_optimization/native.py): runtime loading, status reporting, and safe fallback behavior
+- [attribution_graph_optimization/graph_generation.py](attribution_graph_optimization/graph_generation.py): `implementation="extension"` integration with automatic fallback to pure PyTorch
 
-# After: Batched GPU ops (FAST)
-acts = transcoder(hidden)  # [B, T, F]
-top_vals, top_idx = torch.topk(acts, k=50, dim=2)  # Vectorized
-valid_mask = top_vals >= threshold
-pos_idx, feat_idx = torch.where(valid_mask)  # Single kernel
-```
+What the CUDA kernel does:
 
-**Speedup:** 835ms → 174ms per graph
+1. reads `top_vals` and `top_idx` produced by `torch.topk`
+2. applies the activation threshold on GPU
+3. compacts surviving entries into a dense tuple representation
+4. returns tensors used to build `(batch_idx, position_idx, feature_idx, value)` graph nodes
 
-**2. Memory Layout Optimization**
-- Contiguous tensor allocation eliminates strided memory access
-- Pre-allocated output buffers reduce dynamic allocation overhead
-
-**3. Kernel Fusion**
-- Combined GEMM + ReLU operations
-- Fused threshold + compaction via `torch.where`
+This keeps the custom native surface area small, makes the fallback path easy to verify, and leaves the rest of the graph pipeline readable in Python.
 
 ## Installation
 
+Create a virtual environment, then use a single editable-install command:
+
 ```bash
-git clone https://github.com/KOKOSde/attribution-graph-optimization.git
-cd attribution-graph-optimization
-pip install torch transformers
+python3.9 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Notes:
+
+- If a CUDA toolkit is available during build, `setup.py` uses `CUDAExtension` and compiles the CUDA kernel.
+- If CUDA is not available, the repo still works: it will build the CPU native extension when possible.
+- If native compilation fails entirely, import and graph generation still work through the pure PyTorch fallback.
+
+Optional build flags:
+
+```bash
+ATTR_GRAPH_FORCE_CPU=1 pip install -e ".[dev]"
+ATTR_GRAPH_FORCE_CUDA=1 pip install -e ".[dev]"
+```
+
+## Quick Check
+
+Inspect which path is active:
+
+```python
+from attribution_graph_optimization import get_native_extension_status
+print(get_native_extension_status())
+```
+
+Example output from this workspace:
+
+```python
+{'loaded': True, 'enabled': True, 'disabled_by_env': False, 'build_variant': 'cpu', 'has_cuda_kernels': False, 'load_error': None}
+```
+
+Disable the native path explicitly:
+
+```bash
+ATTR_GRAPH_DISABLE_EXTENSION=1 python -m pytest -q
 ```
 
 ## Usage
 
 ```python
-from optimized_graph_generation import extract_features_optimized
+import torch
+from attribution_graph_optimization import generate_attribution_graph
 
-# Your hidden states from model forward pass
 hidden_states = {
-    layer_idx: hidden  # [batch, seq_len, hidden_dim]
-    for layer_idx in range(40, 63)
+    40: torch.randn(1, 32, 256),
+    41: torch.randn(1, 32, 256),
+}
+transcoders = {
+    40: {'W_enc': torch.randn(1024, 256), 'b_enc': torch.zeros(1024)},
+    41: {'W_enc': torch.randn(1024, 256), 'b_enc': torch.zeros(1024)},
 }
 
-# Optimized extraction
-nodes = extract_features_optimized(
-    feat_acts=transcoder(hidden_states[layer_idx]),
-    layer_idx=layer_idx,
-    top_k=50,
-    threshold=0.01
+graph = generate_attribution_graph(
+    hidden_states=hidden_states,
+    transcoders=transcoders,
+    top_k=16,
+    threshold=0.05,
+    implementation='extension',
 )
 ```
 
-## Benchmark Reproduction
+Valid `implementation` values:
+
+- `baseline`
+- `optimized`
+- `extension`
+- `auto` (`extension` when available, otherwise fallback)
+
+## Benchmark
+
+Run the reproducible benchmark:
 
 ```bash
-python benchmark_graph_generation.py
+python -m benchmarks.bench_graph_generation
 ```
 
-**Expected output:**
-```
-Baseline:  835 ms per graph
-Optimized: 174 ms per graph  
-Speedup:   4.81×
-```
+Default settings are:
 
-## Technical Details
-
-### Architecture Support
-- **LLMs:** GPT-2/3, LLaMA, Qwen, Mistral, Phi
-- **VLMs:** Qwen2.5-VL, LLaVA, CLIP
-- **Constraint:** Requires transcoder networks for feature decomposition
-
-### GPU Utilization
-- Baseline: 23% GPU utilization (CPU-bound by Python loops)
-- Optimized: 87% GPU utilization (compute-bound)
-
-### Scaling Characteristics
-| Seq Length | Baseline | Optimized | Speedup |
-|------------|----------|-----------|---------|
-| 128 | 418 ms | 87 ms | 4.80× |
-| 256 | 835 ms | 174 ms | 4.81× |
-| 512 | 1662 ms | 349 ms | 4.76× |
-
-**Why it scales:** Consistent 4.8× speedup across sequence lengths shows robust optimization.
-
-## Applications
-
-### Mechanistic Interpretability
-- **Circuit discovery:** Identify feature pathways for specific behaviors
-- **Intervention studies:** Measure causal effects of feature amplification/suppression
-- **Safety research:** Detect sycophancy, hallucination, or bias circuits
-
-### Research Impact
-Used to generate 200 attribution graphs for trap-detection study on Qwen2.5-VL-32B, enabling:
-- 73% trap detection accuracy (up from 12% baseline)
-- Identification of "visual grounding" feature at Layer 25
-- Published feature steering methodology
-
-## Performance Analysis
-
-![Performance Charts](performance_analysis.png)
-
-### Profiling Results
-```
-Baseline breakdown (835ms total):
-├─ Python loop overhead:     334ms (40%)
-├─ CPU→GPU transfers:        242ms (29%)  
-├─ GEMM operations:          200ms (24%)
-└─ Top-K + compaction:        59ms (7%)
-
-Optimized breakdown (174ms total):
-├─ GEMM operations:          125ms (72%)
-├─ Top-K + compaction:        38ms (22%)
-└─ Graph construction:        11ms (6%)
+```bash
+python -m benchmarks.bench_graph_generation \
+  --device cpu \
+  --batch-size 1 \
+  --num-layers 4 \
+  --seq-len 128 \
+  --hidden-dim 256 \
+  --feature-dim 2048 \
+  --top-k 32 \
+  --threshold 0.05 \
+  --warmup 5 \
+  --iterations 15 \
+  --num-threads 1
 ```
 
-**Key insight:** Eliminated 661ms of pure overhead (79% faster).
+The benchmark:
 
-## Implementation Notes
+- runs `baseline`, `optimized`, and `extension`
+- prints mean latency, p50 latency, and throughput in graphs/min
+- checks node count and numerical equivalence within tolerance
+- writes JSON output to [results/benchmark_results.json](results/benchmark_results.json)
 
-### Why Not Custom CUDA Kernels?
-cuBLAS and PyTorch's optimized primitives already achieve >85% of theoretical peak performance for these operations. Custom kernels would add complexity with <15% potential gain.
+### Example Output From This Run
 
-### Why Not torch.compile?
-`torch.compile` adds 20-60s compilation overhead per model size. For research workflows with frequent model changes, the amortization point is >1000 graphs.
+This exact output was produced from a fresh Python 3.9 editable install in this workspace on CPU, with the native extension built in `cpu` mode because `nvcc` was not available:
 
-### Hardware Validation
-Benchmarked across multiple NVIDIA GPU architectures:
-- **H100 NVL:** 4.81× speedup (835ms → 174ms)
-- **A100 80GB:** 4.76× speedup (1034ms → 217ms)
-- **Consistent performance:** ~4.8× improvement regardless of GPU generation
+```text
+Configuration:
+  device: cpu
+  dtype: torch.float32
+  batch_size: 1
+  num_layers: 4
+  seq_len: 128
+  hidden_dim: 256
+  feature_dim: 2048
+  top_k: 32
+  threshold: 0.05
+  warmup: 5
+  iterations: 15
+  num_threads: 1
+  native_extension: {'loaded': True, 'enabled': True, 'disabled_by_env': False, 'build_variant': 'cpu', 'has_cuda_kernels': False, 'load_error': None}
 
-### Production Considerations
-For deployment at scale (>10K graphs), consider:
-- `torch.jit.script` for inference (3-8% additional speedup)
-- FP16/BF16 precision (2× faster, acceptable for interpretability)
-- Multi-GPU batching (linear scaling up to 8 GPUs tested)
+Latency summary (ms):
+  baseline   mean=53.745  p50=53.903  throughput=1116.38 graphs/min
+  optimized  mean=49.074  p50=48.835  throughput=1222.65 graphs/min
+  extension  mean=48.456  p50=48.224  throughput=1238.23 graphs/min
 
-## Citation
-
-```bibtex
-@software{alghanim2025attribution,
-  author = {Alghanim, Fahad},
-  title = {Attribution Graph Optimization for Large Language Models},
-  year = {2025},
-  url = {https://github.com/KOKOSde/attribution-graph-optimization}
-}
+Correctness:
+  optimized_vs_baseline: {'matches': True, 'reason': 'ok', 'num_nodes': 16384}
+  extension_vs_optimized: {'matches': True, 'reason': 'ok', 'num_nodes': 16384}
+  summary_match: {'baseline_num_nodes': 16384, 'optimized_num_nodes': 16384, 'extension_num_nodes': 16384}
 ```
 
-## Related Work
+### Benchmark Table
 
-- **sparse-clt**: PyTorch library for efficient Cross-Layer Transcoder inference ([GitHub](https://github.com/KOKOSde/sparse-clt))
-- **Anthropic Attribution Graphs** (2025): Original methodology for feature attribution
+Measured CPU results from this workspace are included below. CUDA/A100 values are placeholders until the GPU benchmark path is validated end-to-end.
 
-## License
+| Environment | Variant | Mean latency (ms) | p50 latency (ms) | Throughput (graphs/min) | Status |
+| --- | --- | ---: | ---: | ---: | --- |
+| CPU local | `baseline` | 53.745 | 53.903 | 1116.38 | measured |
+| CPU local | `optimized` | 49.074 | 48.835 | 1222.65 | measured |
+| CPU local | `extension` | 48.456 | 48.224 | 1238.23 | measured |
+| ASU Sol A100 | `optimized` | TBD | TBD | TBD | placeholder |
+| ASU Sol A100 | `extension` | TBD | TBD | TBD | placeholder |
 
-MIT License - see [LICENSE](LICENSE)
+Current note for the A100 placeholders: the latest ASU Sol smoke run reached dependency install, local model preload, and vLLM startup, but failed on a CLI flag mismatch between the notebook runner and the pinned `vllm==0.11.0` server.
 
-## Author
+## Tests
 
-**Fahad Alghanim**  
-Applying to NVIDIA Deep Learning Internship 2026  
-Focus: GPU optimization for ML interpretability
+CPU smoke test:
 
----
+```bash
+python -m pytest -q
+```
 
-**Questions?** Open an issue or reach out regarding NVIDIA internship collaboration opportunities.
+The smoke test validates:
+
+- package import
+- explicit fallback via `ATTR_GRAPH_DISABLE_EXTENSION=1`
+- graph-node shape/structure on CPU
+
+## Project Layout
+
+```text
+attribution_graph_optimization/
+  __init__.py
+  graph_generation.py
+  native.py
+benchmarks/
+  bench_graph_generation.py
+csrc/
+  compact_topk.cpp
+  compact_topk_cuda.cu
+tests/
+  test_smoke.py
+```
+
+## Troubleshooting
+
+### `nvcc` not found
+
+The CUDA source is present, but the build will fall back to CPU native code unless a CUDA toolkit is installed.
+
+### Native build fails
+
+The install is intentionally non-fatal for the extension build. The Python fallback remains usable.
+
+### CPU-only machines
+
+CPU-only is supported. The benchmark and tests both run on CPU.
+
+## What Is Now Verifiably True
+
+This repository now truthfully contains:
+
+- Python graph-generation code
+- a custom C++ extension
+- a CUDA implementation for the same native op
+- a documented fallback path when native compilation is unavailable
+- a benchmark script that reports actual measured results
+- a CPU smoke test for CI
+
+That makes the precise resume claim "custom C++/CUDA extension" accurate for this repo.

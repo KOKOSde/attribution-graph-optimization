@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.venv/
+.venv39/
 .Python
 build/
 develop-eggs/
@@ -49,4 +51,3 @@ htmlcov/
 data/
 *.json.gz
 *.jsonl
-
